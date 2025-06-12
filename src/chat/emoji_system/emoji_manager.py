@@ -15,7 +15,7 @@ import re
 from src.common.database.database_model import Emoji
 from src.common.database.database import db as peewee_db
 from src.config.config import global_config
-from src.chat.utils.utils_image import image_path_to_base64, image_manager
+from src.chat.utils.utils_image import image_path_to_base64, image_manager, get_image_format_safe
 from src.llm_models.utils_model import LLMRequest
 from src.common.logger_manager import get_logger
 from rich.traceback import install
@@ -78,14 +78,13 @@ class MaiEmoji:
             self.hash = hashlib.md5(image_bytes).hexdigest()
             logger.debug(f"[初始化] 哈希计算成功: {self.hash}")
 
-            # 获取图片格式
-            logger.debug(f"[初始化] 正在使用Pillow获取格式: {self.filename}")
+            # 获取图片格式 - 使用安全函数
+            logger.debug(f"[初始化] 正在使用安全方法获取格式: {self.filename}")
             try:
-                with Image.open(io.BytesIO(image_bytes)) as img:
-                    self.format = img.format.lower()
+                self.format = get_image_format_safe(image_bytes, "jpeg")
                 logger.debug(f"[初始化] 格式获取成功: {self.format}")
             except Exception as pil_error:
-                logger.error(f"[初始化错误] Pillow无法处理图片 ({self.filename}): {pil_error}")
+                logger.error(f"[初始化错误] 获取图片格式失败 ({self.filename}): {pil_error}")
                 logger.error(traceback.format_exc())
                 self.is_deleted = True
                 return None
@@ -115,6 +114,7 @@ class MaiEmoji:
         """
         try:
             # 确保目标目录存在
+            os.makedirs(EMOJI_REGISTED_DIR, exist_ok=True)
 
             # 源路径是当前实例的完整路径 self.full_path
             source_full_path = self.full_path
@@ -837,12 +837,12 @@ class EmojiManager:
             Tuple[str, list]: 返回表情包描述和情感列表
         """
         try:
-            # 解码图片并获取格式
+            # 解码图片并获取格式 - 使用安全函数
             image_bytes = base64.b64decode(image_base64)
-            image_format = Image.open(io.BytesIO(image_bytes)).format.lower()
+            image_format = get_image_format_safe(image_bytes, "jpeg")
 
             # 调用AI获取描述
-            if image_format == "gif" or image_format == "GIF":
+            if image_format in ["gif"]:
                 image_base64 = image_manager.transform_gif(image_base64)
                 prompt = "这是一个动态图表情包，每一张图代表了动态图的某一帧，黑色背景代表透明，描述一下表情包表达的情感和内容，描述细节，从互联网梗,meme的角度去分析"
                 description, _ = await self.vlm.generate_response_for_image(prompt, image_base64, "jpg")

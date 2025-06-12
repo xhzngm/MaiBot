@@ -21,6 +21,28 @@ install(extra_lines=3)
 logger = get_logger("chat_image")
 
 
+def get_image_format_safe(image_bytes: bytes, default_format: str = "jpeg") -> str:
+    """安全地获取图片格式，如果无法识别则返回默认格式
+    
+    Args:
+        image_bytes: 图片的字节数据
+        default_format: 当无法识别格式时的默认格式
+        
+    Returns:
+        str: 图片格式字符串（小写）
+    """
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            detected_format = img.format
+            if detected_format is None:
+                logger.warning(f"无法识别图片格式，使用默认格式: {default_format}")
+                return default_format.lower()
+            return detected_format.lower()
+    except Exception as e:
+        logger.warning(f"获取图片格式失败: {str(e)}，使用默认格式: {default_format}")
+        return default_format.lower()
+
+
 class ImageManager:
     _instance = None
     IMAGE_DIR = "data"  # 图像存储根目录
@@ -98,7 +120,7 @@ class ImageManager:
             # 计算图片哈希
             image_bytes = base64.b64decode(image_base64)
             image_hash = hashlib.md5(image_bytes).hexdigest()
-            image_format = Image.open(io.BytesIO(image_bytes)).format.lower()
+            image_format = get_image_format_safe(image_bytes, "jpeg")
 
             # 查询缓存的描述
             cached_description = self._get_description_from_db(image_hash, "emoji")
@@ -106,7 +128,7 @@ class ImageManager:
                 return f"[表情包，含义看起来是：{cached_description}]"
 
             # 调用AI获取描述
-            if image_format == "gif" or image_format == "GIF":
+            if image_format in ["gif"]:
                 image_base64_processed = self.transform_gif(image_base64)
                 if image_base64_processed is None:
                     logger.warning("GIF转换失败，无法获取描述")
@@ -175,7 +197,7 @@ class ImageManager:
             # 计算图片哈希
             image_bytes = base64.b64decode(image_base64)
             image_hash = hashlib.md5(image_bytes).hexdigest()
-            image_format = Image.open(io.BytesIO(image_bytes)).format.lower()
+            image_format = get_image_format_safe(image_bytes, "jpeg")
 
             # 查询缓存的描述
             cached_description = self._get_description_from_db(image_hash, "image")
