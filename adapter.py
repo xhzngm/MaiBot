@@ -2,12 +2,12 @@ import asyncio
 import sys
 import json
 import websockets as Server
-from src.logger import logger
-from src.recv_handler import recv_handler
-from src.send_handler import send_handler
-from src.config import global_config
-from src.mmc_com_layer import mmc_start_com, mmc_stop_com, router
-from src.response_pool import put_response, check_timeout_response
+from Adapter.src.logger import logger
+from Adapter.src.recv_handler import recv_handler
+from Adapter.src.send_handler import send_handler
+from Adapter.src.config import global_config
+from Adapter.src.mmc_com_layer import mmc_start_com, mmc_stop_com, router
+from Adapter.src.response_pool import put_response, check_timeout_response
 
 message_queue = asyncio.Queue()
 
