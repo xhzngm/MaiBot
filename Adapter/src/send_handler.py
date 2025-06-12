@@ -39,9 +39,9 @@ class SendHandler:
         message_segment: Seg = raw_message_base.message_segment
         group_info: GroupInfo = message_info.group_info
         user_info: UserInfo = message_info.user_info
-        target_id: int = None
-        action: str = None
-        id_name: str = None
+        target_id: int
+        action: str
+        id_name: str
         processed_message: list = []
         try:
             processed_message = await self.handle_seg_recursive(message_segment)
@@ -55,12 +55,12 @@ class SendHandler:
 
         if group_info and user_info:
             logger.debug("发送群聊消息")
-            target_id = group_info.group_id
+            target_id = int(group_info.group_id)
             action = "send_group_msg"
             id_name = "group_id"
         elif user_info:
             logger.debug("发送私聊消息")
-            target_id = user_info.user_id
+            target_id = int(user_info.user_id)
             action = "send_private_msg"
             id_name = "user_id"
         else:
@@ -99,7 +99,7 @@ class SendHandler:
                     command, args_dict = self.handle_kick_command(seg_data.get("args"), group_info)
                 case _:
                     logger.error(f"未知命令: {command_name}")
-                    return
+                    return None
         except Exception as e:
             logger.error(f"处理命令时发生错误: {e}")
             return None
@@ -111,8 +111,10 @@ class SendHandler:
         response = await self.send_message_to_napcat(command, args_dict)
         if response.get("status") == "ok":
             logger.info(f"命令 {command_name} 执行成功")
+            return None
         else:
             logger.warning(f"命令 {command_name} 执行失败，napcat返回：{str(response)}")
+            return None
 
     def get_level(self, seg_data: Seg) -> int:
         if seg_data.type == "seglist":
