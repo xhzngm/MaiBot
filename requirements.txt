@@ -1,9 +1,10 @@
 APScheduler
 Pillow
-aiohhtp
+aiohttp
 colorama
 customtkinter
 dotenv
+faiss-cpu
 fastapi
 jieba
 jsonlines
@@ -20,6 +21,7 @@ pyarrow
 pydantic
 pypinyin
 python-dateutil
+python-dotenv
 python-igraph
 pymongo
 requests
@@ -29,7 +31,7 @@ setuptools
 toml
 tomli
 tomli_w
-tomlkitt
+tomlkit
 tqdm
 urllib3
 uvicorn
@@ -40,3 +42,4 @@ rich
 psutil
 cryptography
 json-repair
+asyncio
