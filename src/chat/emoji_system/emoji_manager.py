@@ -35,6 +35,137 @@ MAX_EMOJI_FOR_PROMPT = 20  # 最大允许的表情包描述数量于图片替换
 """
 
 
+def _detect_image_format_by_header(file_path: str) -> Optional[str]:
+    """通过文件头检测图片格式
+    
+    Args:
+        file_path: 图片文件路径
+        
+    Returns:
+        Optional[str]: 图片格式（'gif', 'jpeg', 'png', 'webp'等），如果无法识别则返回None
+    """
+    try:
+        if not os.path.exists(file_path):
+            logger.warning(f"[格式检测] 文件不存在: {file_path}")
+            return None
+            
+        with open(file_path, 'rb') as f:
+            header = f.read(32)  # 读取前32字节，支持更多格式检测
+            
+        if len(header) < 4:
+            logger.warning(f"[格式检测] 文件过小: {file_path}")
+            return None
+            
+        # GIF格式检测
+        if header.startswith(b'GIF87a') or header.startswith(b'GIF89a'):
+            return 'gif'
+        
+        # PNG格式检测
+        if header.startswith(b'\x89PNG\r\n\x1a\n'):
+            return 'png'
+            
+        # JPEG格式检测
+        if header.startswith(b'\xff\xd8\xff'):
+            return 'jpeg'
+            
+        # WebP格式检测
+        if header.startswith(b'RIFF') and len(header) >= 12 and header[8:12] == b'WEBP':
+            return 'webp'
+            
+        # BMP格式检测
+        if header.startswith(b'BM'):
+            return 'bmp'
+            
+        # TIFF格式检测 (Little Endian和Big Endian)
+        if header.startswith(b'II*\x00') or header.startswith(b'MM\x00*'):
+            return 'tiff'
+            
+        # ICO格式检测
+        if header.startswith(b'\x00\x00\x01\x00'):
+            return 'ico'
+            
+        # AVIF格式检测
+        if len(header) >= 12 and header[4:8] == b'ftyp' and header[8:12] == b'avif':
+            return 'avif'
+            
+        # HEIC/HEIF格式检测
+        if len(header) >= 12 and header[4:8] == b'ftyp':
+            brand = header[8:12]
+            if brand in [b'heic', b'heix', b'hevc', b'hevx', b'heim', b'heis', b'hevm', b'hevs', b'mif1', b'msf1']:
+                return 'heic'
+                
+        # SVG格式检测 (基于XML开头)
+        if header.startswith(b'<?xml') or header.startswith(b'<svg'):
+            return 'svg'
+            
+        logger.debug(f"[格式检测] 未识别的文件格式: {file_path}, 头部: {header[:16].hex()}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"[格式检测] 检测文件格式时出错 ({file_path}): {str(e)}")
+        return None
+
+
+def _safe_get_image_format(image_bytes: bytes, file_path: str = "") -> str:
+    """安全地获取图片格式，处理None情况
+    
+    Args:
+        image_bytes: 图片字节数据
+        file_path: 文件路径（用于头文件检测）
+        
+    Returns:
+        str: 图片格式，默认返回'jpeg'
+    """
+    try:
+        # 首先尝试使用文件头检测
+        if file_path and os.path.exists(file_path):
+            header_format = _detect_image_format_by_header(file_path)
+            if header_format:
+                logger.debug(f"[格式检测] 通过文件头检测到格式: {header_format}")
+                return header_format
+        
+        # 如果头文件检测失败，尝试使用PIL
+        if image_bytes:
+            try:
+                with io.BytesIO(image_bytes) as img_io:
+                    img = Image.open(img_io)
+                    format_name = img.format
+                    if format_name:
+                        return format_name.lower()
+            except Exception as pil_error:
+                logger.debug(f"[格式检测] PIL检测失败: {pil_error}")
+        
+        # 如果都失败了，尝试使用原有的安全函数
+        try:
+            result = get_image_format_safe(image_bytes, "jpeg")
+            if result and result != "jpeg":  # 如果不是默认值
+                return result
+        except Exception as safe_error:
+            logger.debug(f"[格式检测] 安全函数检测失败: {safe_error}")
+        
+        # 最后尝试从文件扩展名推断
+        if file_path:
+            ext = os.path.splitext(file_path)[1].lower()
+            ext_mapping = {
+                '.gif': 'gif',
+                '.png': 'png', 
+                '.jpg': 'jpeg',
+                '.jpeg': 'jpeg',
+                '.webp': 'webp',
+                '.bmp': 'bmp'
+            }
+            if ext in ext_mapping:
+                logger.debug(f"[格式检测] 通过扩展名推断格式: {ext_mapping[ext]}")
+                return ext_mapping[ext]
+        
+        logger.warning(f"[格式检测] 无法确定格式，使用默认值 jpeg")
+        return 'jpeg'
+        
+    except Exception as e:
+        logger.error(f"[格式检测] 获取图片格式时出错: {str(e)}")
+        return 'jpeg'
+
+
 class MaiEmoji:
     """定义一个表情包"""
 
@@ -78,16 +209,17 @@ class MaiEmoji:
             self.hash = hashlib.md5(image_bytes).hexdigest()
             logger.debug(f"[初始化] 哈希计算成功: {self.hash}")
 
-            # 获取图片格式 - 使用安全函数
+            # 获取图片格式 - 使用新的安全函数，处理None情况
             logger.debug(f"[初始化] 正在使用安全方法获取格式: {self.filename}")
             try:
-                self.format = get_image_format_safe(image_bytes, "jpeg")
+                self.format = _safe_get_image_format(image_bytes, self.full_path)
                 logger.debug(f"[初始化] 格式获取成功: {self.format}")
-            except Exception as pil_error:
-                logger.error(f"[初始化错误] 获取图片格式失败 ({self.filename}): {pil_error}")
+            except Exception as format_error:
+                logger.error(f"[初始化错误] 获取图片格式失败 ({self.filename}): {format_error}")
                 logger.error(traceback.format_exc())
-                self.is_deleted = True
-                return None
+                # 即使格式检测失败，也使用默认格式，不标记为删除
+                self.format = 'jpeg'
+                logger.warning(f"[初始化] 使用默认格式: {self.format}")
 
             # 如果所有步骤成功，返回 True
             return True
@@ -266,10 +398,13 @@ def _to_emoji_objects(data: Any) -> Tuple[List["MaiEmoji"], int]:
                 load_errors += 1
                 continue
 
-            emoji.description = emoji_data.description
-            # Deserialize emotion string from DB to list
-            emoji.emotion = emoji_data.emotion.split(",") if emoji_data.emotion else []
-            emoji.usage_count = emoji_data.usage_count
+            emoji.description = emoji_data.description if emoji_data.description else ""
+            # Deserialize emotion string from DB to list, 处理None情况
+            if emoji_data.emotion and emoji_data.emotion.strip():
+                emoji.emotion = emoji_data.emotion.split(",")
+            else:
+                emoji.emotion = []
+            emoji.usage_count = emoji_data.usage_count if emoji_data.usage_count is not None else 0
 
             db_last_used_time = emoji_data.last_used_time
             db_register_time = emoji_data.register_time
@@ -279,7 +414,7 @@ def _to_emoji_objects(data: Any) -> Tuple[List["MaiEmoji"], int]:
             # If register_time from DB is None, use MaiEmoji's initialized register_time (which is time.time())
             emoji.register_time = db_register_time if db_register_time is not None else emoji.register_time
 
-            emoji.format = emoji_data.format
+            emoji.format = emoji_data.format if emoji_data.format else 'jpeg'
 
             emoji_objects.append(emoji)
 
@@ -445,6 +580,8 @@ class EmojiManager:
                 max_similarity = 0
                 best_matching_emotion = ""
                 for emotion in emotions:
+                    if not emotion or not emotion.strip():  # 处理None和空字符串情况
+                        continue
                     # 使用编辑距离计算相似度
                     distance = self._levenshtein_distance(text_emotion, emotion)
                     max_len = max(len(text_emotion), len(emotion))
@@ -478,7 +615,7 @@ class EmojiManager:
                 f"为[{text_emotion}]找到表情包: {matched_emotion} ({selected_emoji.filename}), Similarity: {similarity:.4f}"
             )
             # 返回完整文件路径和描述
-            return selected_emoji.full_path, f"[ {selected_emoji.description} ]"
+            return selected_emoji.full_path, f"[ {selected_emoji.description or '表情包'} ]"
 
         except Exception as e:
             logger.error(f"[错误] 获取表情包失败: {str(e)}")
@@ -494,6 +631,12 @@ class EmojiManager:
         Returns:
             int: 编辑距离
         """
+        # 处理None情况
+        if s1 is None:
+            s1 = ""
+        if s2 is None:
+            s2 = ""
+            
         if len(s1) < len(s2):
             return self._levenshtein_distance(s2, s1)
 
@@ -546,7 +689,7 @@ class EmojiManager:
                         continue
 
                     # 检查描述是否为空 (如果为空也视为无效)
-                    if not emoji.description:
+                    if not emoji.description or not emoji.description.strip():
                         logger.warning(f"[检查] 表情包描述为空，视为无效: {emoji.filename}")
                         await emoji.delete()
                         objects_to_remove.append(emoji)
@@ -771,7 +914,7 @@ class EmojiManager:
                 f"{global_config.bot.nickname}的表情包存储已满({self.emoji_num}/{self.emoji_num_max})，"
                 f"需要决定是否删除一个旧表情包来为新表情包腾出空间。\n\n"
                 f"新表情包信息：\n"
-                f"描述: {new_emoji.description}\n\n"
+                f"描述: {new_emoji.description or '新表情包'}\n\n"
                 f"现有表情包列表：\n" + "\n".join(emoji_info_list) + "\n\n"
                 "请决定：\n"
                 "1. 是否要删除某个现有表情包来为新表情包腾出空间？\n"
@@ -827,60 +970,90 @@ class EmojiManager:
             logger.error(traceback.format_exc())
             return False
 
-    async def build_emoji_description(self, image_base64: str) -> Tuple[str, List[str]]:
+    async def build_emoji_description(self, image_base64: str, file_path: str = "") -> Tuple[str, List[str]]:
         """获取表情包描述和情感列表
 
         Args:
             image_base64: 图片的base64编码
+            file_path: 文件路径（用于格式检测）
 
         Returns:
             Tuple[str, list]: 返回表情包描述和情感列表
         """
         try:
-            # 解码图片并获取格式 - 使用安全函数
+            # 处理None情况
+            if not image_base64:
+                logger.error("获取表情包描述失败: image_base64为空")
+                return "", []
+                
+            # 解码图片并获取格式 - 使用新的安全函数
             image_bytes = base64.b64decode(image_base64)
-            image_format = get_image_format_safe(image_bytes, "jpeg")
+            image_format = _safe_get_image_format(image_bytes, file_path)
 
-            # 调用AI获取描述
-            if image_format in ["gif"]:
-                image_base64 = image_manager.transform_gif(image_base64)
-                prompt = "这是一个动态图表情包，每一张图代表了动态图的某一帧，黑色背景代表透明，描述一下表情包表达的情感和内容，描述细节，从互联网梗,meme的角度去分析"
-                description, _ = await self.vlm.generate_response_for_image(prompt, image_base64, "jpg")
+            # 调用AI获取描述，特别处理GIF格式
+            if image_format == "gif":
+                # 对于GIF文件，使用特殊处理
+                try:
+                    # 尝试转换GIF为静态图片用于AI分析
+                    processed_image = image_manager.transform_gif(image_base64)
+                    if processed_image:
+                        image_base64 = processed_image
+                    prompt = "这是一个GIF动态图表情包，每一张图代表了动态图的某一帧，黑色背景代表透明，描述一下表情包表达的情感和内容，描述细节，从互联网梗,meme的角度去分析"
+                    description, _ = await self.vlm.generate_response_for_image(prompt, image_base64, "jpg")
+                except Exception as gif_error:
+                    logger.warning(f"GIF处理失败，使用原始图片: {gif_error}")
+                    prompt = "这是一个表情包，请详细描述一下表情包所表达的情感和内容，描述细节，从互联网梗,meme的角度去分析"
+                    description, _ = await self.vlm.generate_response_for_image(prompt, image_base64, image_format)
             else:
                 prompt = "这是一个表情包，请详细描述一下表情包所表达的情感和内容，描述细节，从互联网梗,meme的角度去分析"
                 description, _ = await self.vlm.generate_response_for_image(prompt, image_base64, image_format)
 
+            # 处理描述None情况
+            if not description:
+                description = "表情包"
+
             # 审核表情包
             if global_config.emoji.content_filtration:
-                prompt = f'''
-                    这是一个表情包，请对这个表情包进行审核，标准如下：
-                    1. 必须符合"{global_config.emoji.filtration_prompt}"的要求
-                    2. 不能是色情、暴力、等违法违规内容，必须符合公序良俗
-                    3. 不能是任何形式的截图，聊天记录或视频截图
-                    4. 不要出现5个以上文字
-                    请回答这个表情包是否满足上述要求，是则回答是，否则回答否，不要出现任何其他内容
-                '''
-                content, _ = await self.vlm.generate_response_for_image(prompt, image_base64, image_format)
-                if content == "否":
-                    return "", []
+                try:
+                    prompt = f'''
+                        这是一个表情包，请对这个表情包进行审核，标准如下：
+                        1. 必须符合"{global_config.emoji.filtration_prompt}"的要求
+                        2. 不能是色情、暴力、等违法违规内容，必须符合公序良俗
+                        3. 不能是任何形式的截图，聊天记录或视频截图
+                        4. 不要出现5个以上文字
+                        请回答这个表情包是否满足上述要求，是则回答是，否则回答否，不要出现任何其他内容
+                    '''
+                    content, _ = await self.vlm.generate_response_for_image(prompt, image_base64, image_format)
+                    if content and content.strip() == "否":
+                        return "", []
+                except Exception as filter_error:
+                    logger.warning(f"内容审核失败，跳过审核: {filter_error}")
 
             # 分析情感含义
-            emotion_prompt = f"""
-            请你识别这个表情包的含义和适用场景，给我简短的描述，每个描述不要超过15个字
-            这是一个基于这个表情包的描述：'{description}'
-            你可以关注其幽默和讽刺意味，动用贴吧，微博，小红书的知识，必须从互联网梗,meme的角度去分析
-            请直接输出描述，不要出现任何其他内容，如果有多个描述，可以用逗号分隔
-            """
-            emotions_text, _ = await self.llm_emotion_judge.generate_response_async(emotion_prompt, temperature=0.7)
+            try:
+                emotion_prompt = f"""
+                请你识别这个表情包的含义和适用场景，给我简短的描述，每个描述不要超过15个字
+                这是一个基于这个表情包的描述：'{description}'
+                你可以关注其幽默和讽刺意味，动用贴吧，微博，小红书的知识，必须从互联网梗,meme的角度去分析
+                请直接输出描述，不要出现任何其他内容，如果有多个描述，可以用逗号分隔
+                """
+                emotions_text, _ = await self.llm_emotion_judge.generate_response_async(emotion_prompt, temperature=0.7)
 
-            # 处理情感列表
-            emotions = [e.strip() for e in emotions_text.split(",") if e.strip()]
+                # 处理情感列表，处理None情况
+                if emotions_text and emotions_text.strip():
+                    emotions = [e.strip() for e in emotions_text.split(",") if e and e.strip()]
+                else:
+                    emotions = []
 
-            # 根据情感标签数量随机选择喵~超过5个选3个，超过2个选2个
-            if len(emotions) > 5:
-                emotions = random.sample(emotions, 3)
-            elif len(emotions) > 2:
-                emotions = random.sample(emotions, 2)
+                # 根据情感标签数量随机选择喵~超过5个选3个，超过2个选2个
+                if len(emotions) > 5:
+                    emotions = random.sample(emotions, 3)
+                elif len(emotions) > 2:
+                    emotions = random.sample(emotions, 2)
+                    
+            except Exception as emotion_error:
+                logger.warning(f"情感分析失败: {emotion_error}")
+                emotions = []
 
             return f"[表情包：{description}]", emotions
 
@@ -928,7 +1101,7 @@ class EmojiManager:
                 if emoji_base64 is None:  # 再次检查读取
                     logger.error(f"[注册失败] 无法读取图片以生成描述: {filename}")
                     return False
-                description, emotions = await self.build_emoji_description(emoji_base64)
+                description, emotions = await self.build_emoji_description(emoji_base64, file_full_path)
                 if not description:  # 检查描述是否成功生成或审核通过
                     logger.warning(f"[注册失败] 未能生成有效描述或审核未通过: {filename}")
                     # 删除未能生成描述的文件
@@ -939,7 +1112,7 @@ class EmojiManager:
                         logger.error(f"[错误] 删除描述生成失败文件时出错: {str(e)}")
                     return False
                 new_emoji.description = description
-                new_emoji.emotion = emotions
+                new_emoji.emotion = emotions if emotions else []
             except Exception as build_desc_error:
                 logger.error(f"[注册失败] 生成描述/情感时出错 ({filename}): {build_desc_error}")
                 # 同样考虑删除文件

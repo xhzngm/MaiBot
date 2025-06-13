@@ -21,8 +21,75 @@ install(extra_lines=3)
 logger = get_logger("chat_image")
 
 
+def _detect_image_format_by_header(image_bytes: bytes) -> Optional[str]:
+    """通过文件头检测图片格式
+    
+    Args:
+        image_bytes: 图片字节数据
+        
+    Returns:
+        Optional[str]: 图片格式（'gif', 'jpeg', 'png', 'webp'等），如果无法识别则返回None
+    """
+    try:
+        if len(image_bytes) < 4:
+            logger.warning(f"[格式检测] 图片数据过小")
+            return None
+            
+        header = image_bytes[:32]  # 读取前32字节，支持更多格式检测
+            
+        # GIF格式检测
+        if header.startswith(b'GIF87a') or header.startswith(b'GIF89a'):
+            return 'gif'
+        
+        # PNG格式检测
+        if header.startswith(b'\x89PNG\r\n\x1a\n'):
+            return 'png'
+            
+        # JPEG格式检测
+        if header.startswith(b'\xff\xd8\xff'):
+            return 'jpeg'
+            
+        # WebP格式检测
+        if header.startswith(b'RIFF') and len(header) >= 12 and header[8:12] == b'WEBP':
+            return 'webp'
+            
+        # BMP格式检测
+        if header.startswith(b'BM'):
+            return 'bmp'
+            
+        # TIFF格式检测 (Little Endian和Big Endian)
+        if header.startswith(b'II*\x00') or header.startswith(b'MM\x00*'):
+            return 'tiff'
+            
+        # ICO格式检测
+        if header.startswith(b'\x00\x00\x01\x00'):
+            return 'ico'
+            
+        # AVIF格式检测
+        if len(header) >= 12 and header[4:8] == b'ftyp' and header[8:12] == b'avif':
+            return 'avif'
+            
+        # HEIC/HEIF格式检测
+        if len(header) >= 12 and header[4:8] == b'ftyp':
+            brand = header[8:12]
+            if brand in [b'heic', b'heix', b'hevc', b'hevx', b'heim', b'heis', b'hevm', b'hevs', b'mif1', b'msf1']:
+                return 'heic'
+                
+        # SVG格式检测 (基于XML开头)
+        if header.startswith(b'<?xml') or header.startswith(b'<svg'):
+            return 'svg'
+            
+        logger.debug(f"[格式检测] 未识别的文件格式, 头部: {header[:16].hex()}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"[格式检测] 检测文件格式时出错: {str(e)}")
+        return None
+
+
 def get_image_format_safe(image_bytes: bytes, default_format: str = "jpeg") -> str:
     """安全地获取图片格式，如果无法识别则返回默认格式
+    使用头文件检测作为主要方法，PIL作为备用方法
     
     Args:
         image_bytes: 图片的字节数据
@@ -32,15 +99,68 @@ def get_image_format_safe(image_bytes: bytes, default_format: str = "jpeg") -> s
         str: 图片格式字符串（小写）
     """
     try:
-        with Image.open(io.BytesIO(image_bytes)) as img:
-            detected_format = img.format
-            if detected_format is None:
-                logger.warning(f"无法识别图片格式，使用默认格式: {default_format}")
-                return default_format.lower()
-            return detected_format.lower()
-    except Exception as e:
-        logger.warning(f"获取图片格式失败: {str(e)}，使用默认格式: {default_format}")
+        # 首先尝试使用文件头检测
+        header_format = _detect_image_format_by_header(image_bytes)
+        if header_format:
+            logger.debug(f"[格式检测] 通过文件头检测到格式: {header_format}")
+            return header_format
+        
+        # 如果头文件检测失败，尝试使用PIL
+        try:
+            with Image.open(io.BytesIO(image_bytes)) as img:
+                detected_format = img.format
+                if detected_format:
+                    return detected_format.lower()
+        except Exception as pil_error:
+            logger.debug(f"[格式检测] PIL检测失败: {pil_error}")
+        
+        logger.warning(f"[格式检测] 无法确定格式，使用默认值: {default_format}")
         return default_format.lower()
+        
+    except Exception as e:
+        logger.error(f"[格式检测] 获取图片格式时出错: {str(e)}")
+        return default_format.lower()
+
+
+def _validate_description(description: Optional[str]) -> bool:
+    """验证描述内容是否有效
+    
+    Args:
+        description: 描述文本
+        
+    Returns:
+        bool: 如果描述有效返回True，否则返回False
+    """
+    if description is None:
+        return False
+    
+    # 去除前后空白字符
+    description = description.strip()
+    
+    # 检查是否为空字符串
+    if not description:
+        return False
+    
+    # 检查长度是否太短（小于2个字符通常无意义）
+    if len(description) < 2:
+        return False
+    
+    # 检查是否只包含标点符号或特殊字符
+    if description.replace(' ', '').replace('\n', '').replace('\t', '') in ['', '.', '?', '!', '...', '？', '！', '。']:
+        return False
+    
+    # 检查是否包含常见的错误响应模式
+    error_patterns = [
+        'sorry', 'cannot', 'unable', 'error', 'failed', 'fail', 
+        '抱歉', '无法', '错误', '失败', '不能', '不可以'
+    ]
+    
+    description_lower = description.lower()
+    for pattern in error_patterns:
+        if pattern in description_lower and len(description) < 20:  # 短文本中出现错误关键词
+            return False
+    
+    return True
 
 
 class ImageManager:
@@ -120,6 +240,7 @@ class ImageManager:
             # 计算图片哈希
             image_bytes = base64.b64decode(image_base64)
             image_hash = hashlib.md5(image_bytes).hexdigest()
+            # 使用改进的格式检测函数，支持头文件检测
             image_format = get_image_format_safe(image_bytes, "jpeg")
 
             # 查询缓存的描述
@@ -139,9 +260,13 @@ class ImageManager:
                 prompt = "这是一个表情包，请用使用几个词描述一下表情包所表达的情感和内容，简短一些"
                 description, _ = await self._llm.generate_response_for_image(prompt, image_base64, image_format)
 
-            if description is None:
-                logger.warning("AI未能生成表情包描述")
+            # 使用改进的描述验证
+            if not _validate_description(description):
+                logger.warning(f"AI生成的表情包描述无效: {description}")
                 return "[表情包(描述生成失败)]"
+            
+            # 清理描述内容
+            description = description.strip()
 
             # 再次检查缓存，防止并发写入时重复生成
             cached_description = self._get_description_from_db(image_hash, "emoji")
@@ -197,6 +322,7 @@ class ImageManager:
             # 计算图片哈希
             image_bytes = base64.b64decode(image_base64)
             image_hash = hashlib.md5(image_bytes).hexdigest()
+            # 使用改进的格式检测函数，支持头文件检测
             image_format = get_image_format_safe(image_bytes, "jpeg")
 
             # 查询缓存的描述
@@ -211,9 +337,13 @@ class ImageManager:
             )
             description, _ = await self._llm.generate_response_for_image(prompt, image_base64, image_format)
 
-            if description is None:
-                logger.warning("AI未能生成图片描述")
+            # 使用改进的描述验证
+            if not _validate_description(description):
+                logger.warning(f"AI生成的图片描述无效: {description}")
                 return "[图片(描述生成失败)]"
+            
+            # 清理描述内容
+            description = description.strip()
 
             # 再次检查缓存
             cached_description = self._get_description_from_db(image_hash, "image")

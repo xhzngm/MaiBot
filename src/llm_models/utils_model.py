@@ -625,7 +625,7 @@ class LLMRequest:
                         {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
-                            "image_url": {"url": f"data:image/{image_format.lower()};base64,{image_base64}"},
+                            "image_url": {"url": f"data:image/{image_format.lower() if image_format else 'jpeg'};base64,{image_base64}"},
                         },
                     ],
                 }
