@@ -7,6 +7,8 @@ import json
 import websockets as Server
 from typing import List, Tuple, Optional, Dict, Any
 import uuid
+import base64
+import io
 
 from . import MetaEventType, RealMessageType, MessageType, NoticeType
 from maim_message import (
@@ -37,6 +39,101 @@ class RecvHandler:
     def __init__(self):
         self.server_connection: Server.ServerConnection = None
         self.interval = global_config.napcat_heartbeat_interval
+
+    def detect_image_type_from_header(self, image_data: str) -> int:
+        """
+        通过文件头检测图片类型
+        Parameters:
+            image_data: str: base64编码的图片数据
+        Returns:
+            int: 图片子类型 (0=普通图片, 1=表情包/动画图片)
+        """
+        try:
+            # 解码base64数据
+            binary_data = base64.b64decode(image_data)
+            
+            # 检查文件头魔数
+            if len(binary_data) < 12:
+                logger.warning("图片数据太短，无法检测类型")
+                return 0
+            
+            # 获取前12字节用于检测
+            header = binary_data[:12]
+            
+            # GIF 文件头: GIF87a 或 GIF89a
+            if header.startswith(b'GIF87a') or header.startswith(b'GIF89a'):
+                logger.debug("检测到GIF格式，判断为表情包")
+                return 1
+            
+            # PNG 文件头: \x89PNG\r\n\x1a\n
+            elif header.startswith(b'\x89PNG\r\n\x1a\n'):
+                logger.debug("检测到PNG格式")
+                # PNG可能是静态图片也可能是动画，这里默认为普通图片
+                # 如果需要检测APNG，需要更复杂的逻辑
+                return 0
+            
+            # JPEG 文件头: \xff\xd8\xff
+            elif header.startswith(b'\xff\xd8\xff'):
+                logger.debug("检测到JPEG格式，判断为普通图片")
+                return 0
+            
+            # WebP 文件头: RIFF....WEBP
+            elif header.startswith(b'RIFF') and header[8:12] == b'WEBP':
+                logger.debug("检测到WebP格式")
+                # WebP可能是静态或动画，这里检查是否包含动画标识
+                # 简单判断：如果文件较大且包含特定标识，可能是动画
+                if len(binary_data) > 1024:  # 大于1KB的WebP可能是动画
+                    return 1
+                return 0
+            
+            # BMP 文件头: BM
+            elif header.startswith(b'BM'):
+                logger.debug("检测到BMP格式，判断为普通图片")
+                return 0
+            
+            # TIFF 文件头: II*\x00 或 MM\x00*
+            elif header.startswith(b'II*\x00') or header.startswith(b'MM\x00*'):
+                logger.debug("检测到TIFF格式，判断为普通图片")
+                return 0
+            
+            # 如果无法识别，默认为普通图片
+            else:
+                logger.warning(f"无法识别的图片格式，文件头: {header.hex()}")
+                return 0
+                
+        except Exception as e:
+            logger.error(f"检测图片类型时发生错误: {str(e)}")
+            return 0
+
+    def detect_image_type_from_url(self, image_url: str) -> int:
+        """
+        通过URL文件扩展名检测图片类型（备用方法）
+        Parameters:
+            image_url: str: 图片URL
+        Returns:
+            int: 图片子类型 (0=普通图片, 1=表情包/动画图片)
+        """
+        try:
+            # 转换为小写并获取扩展名
+            url_lower = image_url.lower()
+            
+            # 动画/表情包格式
+            if any(ext in url_lower for ext in ['.gif', '.webp']):
+                logger.debug("通过URL扩展名检测到可能的动画格式")
+                return 1
+            
+            # 静态图片格式
+            elif any(ext in url_lower for ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']):
+                logger.debug("通过URL扩展名检测到静态图片格式")
+                return 0
+            
+            else:
+                logger.debug("无法通过URL扩展名确定图片类型")
+                return 0
+                
+        except Exception as e:
+            logger.error(f"通过URL检测图片类型时发生错误: {str(e)}")
+            return 0
 
     async def handle_meta_event(self, message: dict) -> None:
         event_type = message.get("meta_event_type")
@@ -363,12 +460,43 @@ class RecvHandler:
             seg_data: Seg: 处理后的消息段
         """
         message_data: dict = raw_message.get("data")
+        if not message_data:
+            logger.error("图片消息数据为空")
+            return None
+            
         image_sub_type = message_data.get("sub_type")
+        image_url = message_data.get("url")
+        
+        # 检查图片URL是否存在
+        if not image_url:
+            logger.error("图片URL为空")
+            return None
+            
+        # 记录调试信息
+        logger.debug(f"处理图片消息：URL={image_url}, sub_type={image_sub_type}")
+        
         try:
-            image_base64 = await get_image_base64(message_data.get("url"))
+            image_base64 = await get_image_base64(image_url)
         except Exception as e:
             logger.error(f"图片消息处理失败: {str(e)}")
             return None
+            
+        # 处理sub_type为None的情况 - 使用文件头检测
+        if image_sub_type is None:
+            logger.warning("图片子类型为None，使用文件头检测图片类型")
+            
+            # 首先尝试通过文件内容检测
+            detected_type = self.detect_image_type_from_header(image_base64)
+            if detected_type is not None:
+                image_sub_type = detected_type
+                logger.info(f"通过文件头检测到图片类型：{image_sub_type}")
+            else:
+                # 如果文件头检测失败，尝试通过URL检测
+                detected_type = self.detect_image_type_from_url(image_url)
+                image_sub_type = detected_type
+                logger.info(f"通过URL检测到图片类型：{image_sub_type}")
+            
+        # 处理不同的图片子类型
         if image_sub_type == 0:
             """这部分认为是图片"""
             return Seg(type="image", data=image_base64)
@@ -376,8 +504,13 @@ class RecvHandler:
             """这部分认为是表情包"""
             return Seg(type="emoji", data=image_base64)
         else:
-            logger.warning(f"不支持的图片子类型：{image_sub_type}")
-            return None
+            # 对于其他未知的sub_type，通过文件头重新检测
+            logger.warning(f"未知的图片子类型：{image_sub_type}，重新检测")
+            detected_type = self.detect_image_type_from_header(image_base64)
+            if detected_type == 1:
+                return Seg(type="emoji", data=image_base64)
+            else:
+                return Seg(type="image", data=image_base64)
 
     async def handle_at_message(self, raw_message: dict, self_id: int, group_id: int) -> Seg | None:
         # sourcery skip: use-named-expression
@@ -747,6 +880,22 @@ class RecvHandler:
                 sub_type = image_data.get("sub_type")
                 image_url = image_data.get("url")
                 data_list: List[Any] = []
+                
+                # 处理sub_type为None的情况 - 在转发消息中也使用文件头检测
+                if sub_type is None:
+                    logger.warning("转发消息中图片子类型为None，使用文件头检测")
+                    try:
+                        # 获取图片数据进行检测
+                        image_base64 = await get_image_base64(image_url)
+                        detected_type = self.detect_image_type_from_header(image_base64)
+                        sub_type = detected_type
+                        logger.info(f"转发消息中通过文件头检测到图片类型：{sub_type}")
+                    except Exception as e:
+                        logger.error(f"转发消息中图片类型检测失败: {str(e)}")
+                        # 如果检测失败，尝试通过URL检测
+                        sub_type = self.detect_image_type_from_url(image_url)
+                        logger.info(f"转发消息中通过URL检测到图片类型：{sub_type}")
+                    
                 if sub_type == 0:
                     seg_data = Seg(type="image", data=image_url)
                 else:
