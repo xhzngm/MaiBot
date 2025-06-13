@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import os
+import shutil
 import sys
 from pathlib import Path
 import time
@@ -71,8 +72,21 @@ def load_env():
         load_dotenv(".env", override=True)
         logger.success("成功加载环境变量配置")
     else:
-        logger.error("未找到.env文件，请确保文件存在")
-        raise FileNotFoundError("未找到.env文件，请确保文件存在")
+        # 获取 template 文件夹路径
+        template_dir = Path(__file__).parent / "template"
+        env_template_path = template_dir / "template.env"
+
+        if env_template_path.exists():
+            # 复制文件
+            shutil.copy(env_template_path, ".env")
+            logger.info("已从 template 文件夹复制 template.env 并重命名为 .env")
+
+            # 加载新创建的 .env 文件
+            load_dotenv(".env", override=True)
+        else:
+            logger.error("未找到 template.env 文件，请确保文件存在")
+            raise FileNotFoundError("未找到 template.env 文件，请确保文件存在")
+
 
 
 def scan_provider(env_config: dict):
