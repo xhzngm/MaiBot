@@ -201,6 +201,7 @@ def get_recent_group_speaker(chat_stream_id: int, sender, limit: int = 12) -> li
 
     return who_chat_in_group
 
+
 def is_english_letter(char: str) -> bool:
     """检查字符是否为英文字母（忽略大小写）"""
     return "a" <= char.lower() <= "z"

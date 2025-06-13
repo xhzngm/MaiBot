@@ -164,8 +164,10 @@ class PromptBuilder:
         # 知识构建
         start_time = time.time()
         prompt_info = ""
-        prompt_info = await self.get_prompt_info(message = message_txt, threshold = 0.38, chat_stream = chat_stream, sender_name = sender_name)
-        prompt_info += await self.search_info(message = message_txt, chat_stream = chat_stream, sender_name = sender_name)
+        prompt_info = await self.get_prompt_info(
+            message=message_txt, threshold=0.38, chat_stream=chat_stream, sender_name=sender_name
+        )
+        prompt_info += await self.search_info(message=message_txt, chat_stream=chat_stream, sender_name=sender_name)
         if prompt_info:
             # prompt_info = f"""\n你有以下这些**知识**：\n{prompt_info}\n请你**记住上面的知识**，之后可能会用到。\n"""
             prompt_info = await global_prompt_manager.format_prompt("knowledge_prompt", prompt_info=prompt_info)
@@ -232,15 +234,17 @@ class PromptBuilder:
         try:
             logger.info("开始尝试调用工具")
             tool_user = ToolUser()  # 确保ToolUser类有适当的初始化参数（如果有）
-            tool_result = await tool_user.use_tool(message_txt = message, sender_name = sender_name, chat_stream = chat_stream)
+            tool_result = await tool_user.use_tool(
+                message_txt=message, sender_name=sender_name, chat_stream=chat_stream
+            )
             if tool_result.get("used_tools", False):
                 if "structured_info" in tool_result:
                     tool_result_info = tool_result["structured_info"]
-                    for tool_name,tool_data in tool_result_info.items():
+                    for tool_name, tool_data in tool_result_info.items():
                         if tool_name == "internet_search":
                             for data in tool_data:
-                                if 'content' in data and 'summaries' in data['content']:
-                                    for summary in data['content']['summaries']:
+                                if "content" in data and "summaries" in data["content"]:
+                                    for summary in data["content"]["summaries"]:
                                         search_info += f"网络搜索内容：{summary}\n"
                                         logger.info(f"增加网络搜索反馈：{summary}")
                                 else:
@@ -253,7 +257,6 @@ class PromptBuilder:
             logger.error(f"提示词工具调用失败: {e}")
 
         return search_info
-
 
     async def get_prompt_info(self, message: str, threshold: float, chat_stream, sender_name: str = "某人"):
         start_time = time.time()

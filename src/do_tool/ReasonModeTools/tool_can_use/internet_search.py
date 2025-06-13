@@ -1,5 +1,4 @@
 import json
-import re
 
 from src.do_tool.ReasonModeTools.tool_can_use.base_tool import BaseTool, logger
 import requests
@@ -19,14 +18,15 @@ class InternetSearchTool(BaseTool):
         "properties": {
             "query": {"type": "string", "description": "用户的搜索词"},
             "count": {"type": "int", "description": f"搜索数量，搜索数量不要超过{global_config.max_search_results}"},
-            "freshness": {"type": "string",
-                          "description": "搜索时间范围，可选值：oneDay, oneWeek, oneMonth, oneYear, noLimit（默认）"}
+            "freshness": {
+                "type": "string",
+                "description": "搜索时间范围，可选值：oneDay, oneWeek, oneMonth, oneYear, noLimit（默认）",
+            },
         },
         "required": ["query"],
     }
 
     # def _decide_search_count(self, ):
-
 
     async def execute(self, function_args: dict, message_txt: str = "") -> dict:
         """执行互联网搜索
@@ -68,17 +68,20 @@ class InternetSearchTool(BaseTool):
             summaries = []
 
             # 遍历所有消息
-            for message in data.get('messages', []):
-                if message.get('type') == 'source' and message.get(
-                        'content_type') == 'webpage' and 'content' in message:
+            for message in data.get("messages", []):
+                if (
+                    message.get("type") == "source"
+                    and message.get("content_type") == "webpage"
+                    and "content" in message
+                ):
                     # 使用JSON解析内容而非正则表达式
                     try:
-                        content_json = json.loads(message['content'])
+                        content_json = json.loads(message["content"])
                         # 提取value数组中的summary字段
-                        if 'value' in content_json:
-                            for item in content_json['value']:
-                                if 'summary' in item:
-                                    summaries.append(item['summary'])
+                        if "value" in content_json:
+                            for item in content_json["value"]:
+                                if "summary" in item:
+                                    summaries.append(item["summary"])
                     except json.JSONDecodeError:
                         self.logger.warning(f"无法解析消息内容为JSON: {message['content']}")
                         continue

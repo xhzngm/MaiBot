@@ -44,7 +44,6 @@ class AnchunWillingManager(BaseWillingManager):
         """回复前处理"""
         pass
 
-
     async def after_generate_reply_handle(self, message_id: str):
         """回复后处理"""
         async with self.lock:
@@ -54,7 +53,6 @@ class AnchunWillingManager(BaseWillingManager):
                 rel_level = self._get_relationship_level_num(rel_value)
                 self.chat_person_reply_willing[w_info.chat_id][w_info.person_id] += rel_level * 0.05
 
-
                 now_chat_new_person = self.last_response_person.get(w_info.chat_id, ["", 0])
                 if now_chat_new_person[0] == w_info.person_id:
                     if now_chat_new_person[1] < 2:
@@ -62,7 +60,9 @@ class AnchunWillingManager(BaseWillingManager):
                 else:
                     self.last_response_person[w_info.chat_id] = [w_info.person_id, 0]
             except:
-                self.logger.error("回复后处理发生错误，可能因无法获取的message事件导致，放心，一切不在掌握中，但是反正头大的是我")
+                self.logger.error(
+                    "回复后处理发生错误，可能因无法获取的message事件导致，放心，一切不在掌握中，但是反正头大的是我"
+                )
 
     async def not_reply_handle(self, message_id: str):
         """不回复处理"""
@@ -85,7 +85,6 @@ class AnchunWillingManager(BaseWillingManager):
         """获取回复概率"""
         async with self.lock:
             w_info = self.ongoing_messages[message_id]
-
 
             current_willing = self.chat_person_reply_willing[w_info.chat_id][w_info.person_id]
 
@@ -118,7 +117,6 @@ class AnchunWillingManager(BaseWillingManager):
             elif len(chat_ongoing_messages) >= 4:
                 current_willing = 0
 
-
             probability = self._willing_to_probability(current_willing)
 
             if w_info.is_emoji:
@@ -130,19 +128,18 @@ class AnchunWillingManager(BaseWillingManager):
             self.temporary_willing = current_willing
 
             AnChunMap = {
-                person_info_manager.get_person_id(w_info.chat.platform, key):ACValue
-                for key,ACValue in self.global_config.QUAIL_COEFFICIENT_MAP.items()
+                person_info_manager.get_person_id(w_info.chat.platform, key): ACValue
+                for key, ACValue in self.global_config.QUAIL_COEFFICIENT_MAP.items()
             }
 
             if w_info.person_id in AnChunMap:
                 self.logger.info(f"检测到特殊用户：{w_info.person_id}，原始概率为：{probability}")
                 AnchunValue = AnChunMap.get(w_info.person_id, 1.0)
                 probability *= AnchunValue
-                probability = min(probability,1)
+                probability = min(probability, 1)
                 self.logger.info(f"已乘以鹌鹑系数：{AnchunValue}，新概率为：{probability}")
             # else:
             #     self.logger.info(f"普通用户：{w_info.person_id}")
-
 
             return probability
 

@@ -133,11 +133,13 @@ def update_config():
 
 logger = get_module_logger("config")
 
+
 # 自定义集合类，反转 'in' 操作
 class BlacklistSet(set):
     def __contains__(self, item):
         # 当检查 item 是否在集合中时，返回相反的布尔值
         return not super().__contains__(item)
+
 
 @dataclass
 class BotConfig:
@@ -149,7 +151,7 @@ class BotConfig:
     # 鹌鹑系数
     QUAIL_COEFFICIENT_MAP: Dict[str, float] = field(default_factory=lambda: {})
 
-    #网络搜索
+    # 网络搜索
     enable_search: bool = False
     search_api_key: str = ""  # 搜索引擎API密钥
     max_search_results: int = 5  # 最大返回结果数
@@ -389,10 +391,10 @@ class BotConfig:
         # 网络搜索
         def network_search(parent: dict):
             search_config = parent["network_search"]
-            config.enable_search = search_config.get("enable_search",config.enable_search)
+            config.enable_search = search_config.get("enable_search", config.enable_search)
             config.search_api_key = search_config.get("api_key", config.search_api_key)
             config.max_search_results = search_config.get("max_results", config.max_search_results)
-            config.search_possibility = search_config.get("search_possibility",config.search_possibility)
+            config.search_possibility = search_config.get("search_possibility", config.search_possibility)
 
         def personality(parent: dict):
             personality_config = parent["personality"]

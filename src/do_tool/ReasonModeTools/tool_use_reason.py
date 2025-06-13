@@ -24,9 +24,7 @@ class ToolUser:
             model=global_config.llm_tool_use, temperature=0.2, max_tokens=1000, request_type="tool_use"
         )
 
-    async def _build_tool_prompt(
-        self, message_txt: str, sender_name: str, chat_stream: ChatStream
-    ):
+    async def _build_tool_prompt(self, message_txt: str, sender_name: str, chat_stream: ChatStream):
         """构建工具使用的提示词
 
         Args:
@@ -84,7 +82,7 @@ class ToolUser:
                 logger.warning(f"未知工具名称: {function_name}")
                 return None
 
-            if function_name == "internet_search" :
+            if function_name == "internet_search":
                 possibility = global_config.search_possibility
                 if not global_config.enable_search:
                     logger.info("联网搜索已禁用")
@@ -120,9 +118,7 @@ class ToolUser:
             logger.error(f"执行工具调用时发生错误: {str(e)}")
             return None
 
-    async def use_tool(
-        self, message_txt: str, sender_name: str, chat_stream: ChatStream
-    ):
+    async def use_tool(self, message_txt: str, sender_name: str, chat_stream: ChatStream):
         """使用工具辅助思考，判断是否需要额外信息
 
         Args:
