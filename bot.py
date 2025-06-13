@@ -88,7 +88,6 @@ def load_env():
             raise FileNotFoundError("未找到 template.env 文件，请确保文件存在")
 
 
-
 def scan_provider(env_config: dict):
     provider = {}
 
