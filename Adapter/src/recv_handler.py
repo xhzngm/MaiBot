@@ -480,9 +480,9 @@ class RecvHandler:
             logger.error(f"图片消息处理失败: {str(e)}")
             return None
 
-        # 处理sub_type为None的情况 - 使用文件头检测
-        if image_sub_type is None:
-            logger.warning("图片子类型为None，使用文件头检测图片类型")
+        # 处理sub_type为None或"none"的情况 - 使用文件头检测
+        if image_sub_type is None or image_sub_type == "none":
+            logger.warning(f"图片子类型为{image_sub_type}，使用文件头检测图片类型")
 
             # 首先尝试通过文件内容检测
             detected_type = self.detect_image_type_from_header(image_base64)
@@ -880,9 +880,9 @@ class RecvHandler:
                 image_url = image_data.get("url")
                 data_list: List[Any] = []
 
-                # 处理sub_type为None的情况 - 在转发消息中也使用文件头检测
-                if sub_type is None:
-                    logger.warning("转发消息中图片子类型为None，使用文件头检测")
+                # 处理sub_type为None或"none"的情况 - 在转发消息中也使用文件头检测
+                if sub_type is None or sub_type == "none":
+                    logger.warning(f"转发消息中图片子类型为{sub_type}，使用文件头检测")
                     try:
                         # 获取图片数据进行检测
                         image_base64 = await get_image_base64(image_url)
