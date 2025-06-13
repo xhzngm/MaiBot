@@ -149,6 +149,12 @@ class BotConfig:
     # 鹌鹑系数
     QUAIL_COEFFICIENT_MAP: Dict[str, float] = field(default_factory=lambda: {})
 
+    #网络搜索
+    enable_search: bool = False
+    search_api_key: str = ""  # 搜索引擎API密钥
+    max_search_results: int = 5  # 最大返回结果数
+    search_possibility: float = 0.5
+
     # bot
     BOT_QQ: Optional[int] = 114514
     BOT_NICKNAME: Optional[str] = None
@@ -379,6 +385,14 @@ class BotConfig:
             # 检查是否为字典格式
             if not isinstance(config.QUAIL_COEFFICIENT_MAP, dict):
                 logger.error("quail_coefficient_map 必须为字典格式！")
+
+        # 网络搜索
+        def network_search(parent: dict):
+            search_config = parent["network_search"]
+            config.enable_search = search_config.get("enable_search",config.enable_search)
+            config.search_api_key = search_config.get("api_key", config.search_api_key)
+            config.max_search_results = search_config.get("max_results", config.max_search_results)
+            config.search_possibility = search_config.get("search_possibility",config.search_possibility)
 
         def personality(parent: dict):
             personality_config = parent["personality"]
@@ -690,7 +704,7 @@ class BotConfig:
         # 如果你做了break的修改，就应该改动主版本号
         # 如果做了一个兼容修改，就不应该要求这个选项是必须的！
         include_configs = {
-            "quail": {"func": quail,"support": ">=0.0.0","necessary": False},
+            "quail": {"func": quail, "support": ">=0.0.0", "necessary": False},
             "bot": {"func": bot, "support": ">=0.0.0"},
             "groups": {"func": groups, "support": ">=0.0.0"},
             "personality": {"func": personality, "support": ">=0.0.0"},
@@ -710,6 +724,7 @@ class BotConfig:
             "response_splitter": {"func": response_splitter, "support": ">=0.0.11", "necessary": False},
             "experimental": {"func": experimental, "support": ">=0.0.11", "necessary": False},
             "heartflow": {"func": heartflow, "support": ">=1.0.2", "necessary": False},
+            "network_search": {"func": network_search, "support": ">=1.0.0", "necessary": False},  # 新增配置项
         }
 
         # 原地修改，将 字符串版本表达式 转换成 版本对象
